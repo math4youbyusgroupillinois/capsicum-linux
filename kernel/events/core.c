@@ -587,11 +587,11 @@ static inline int perf_cgroup_connect(int fd, struct perf_event *event,
 {
 	struct perf_cgroup *cgrp;
 	struct cgroup_subsys_state *css;
-	struct fd f = fdget(fd);
+	struct fd f = fdgetr(fd, CAP_FSTAT);
 	int ret = 0;
 
-	if (!f.file)
-		return -EBADF;
+	if (IS_ERR(f.file))
+		return PTR_ERR(f.file);
 
 	rcu_read_lock();
 
@@ -3591,9 +3591,9 @@ static const struct file_operations perf_fops;
 
 static inline int perf_fget_light(int fd, struct fd *p)
 {
-	struct fd f = fdget(fd);
-	if (!f.file)
-		return -EBADF;
+	struct fd f = fdgetr(fd, CAP_WRITE);
+	if (IS_ERR(f.file))
+		return PTR_ERR(f.file);
 
 	if (f.file->f_op != &perf_fops) {
 		fdput(f);
@@ -3644,7 +3644,7 @@ static long perf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		int ret;
 		if (arg != -1) {
 			struct perf_event *output_event;
-			struct fd output;
+			struct fd output = { .file = NULL };
 			ret = perf_fget_light(arg, &output);
 			if (ret)
 				return ret;

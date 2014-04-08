@@ -1541,10 +1541,18 @@ static int compat_ioctl_check_table(unsigned int xcmd)
 asmlinkage long compat_sys_ioctl(unsigned int fd, unsigned int cmd,
 				unsigned long arg)
 {
-	struct fd f = fdget(fd);
-	int error = -EBADF;
-	if (!f.file)
+	struct capsicum_rights rights;
+	struct fd f;
+	int error;
+
+	cap_rights_init(&rights, CAP_IOCTL);
+	rights.nioctls = 1;
+	rights.ioctls = &cmd;
+	f = fdget_rights(fd, &rights);
+	if (IS_ERR(f.file)) {
+		error = PTR_ERR(f.file);
 		goto out;
+	}
 
 	/* RED-PEN how should LSM module know it's handling 32bit? */
 	error = security_file_ioctl(f.file, cmd, arg);
