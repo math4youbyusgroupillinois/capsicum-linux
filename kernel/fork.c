@@ -71,6 +71,7 @@
 #include <linux/signalfd.h>
 #include <linux/uprobes.h>
 #include <linux/aio.h>
+#include <linux/procdesc.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -1407,6 +1408,8 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 		p->group_leader = p;
 		p->tgid = p->pid;
 	}
+	p->quiet_forked = !!(clone_flags & CLONE_QUIET_FORK);
+	init_waitqueue_head(&p->wait_exit);
 
 	p->nr_dirtied = 0;
 	p->nr_dirtied_pause = 128 >> (PAGE_SHIFT - 10);
@@ -1567,12 +1570,17 @@ struct task_struct *fork_idle(int cpu)
  *
  * It copies the process, and if successful kick-starts
  * it and waits for it to finish using the VM if required.
+ *
+ * If @taskp is not NULL, returns a reference to the new
+ * task, and increments its reference count so that reference
+ * will remain valid.
  */
-long do_fork(unsigned long clone_flags,
-	      unsigned long stack_start,
-	      unsigned long stack_size,
-	      int __user *parent_tidptr,
-	      int __user *child_tidptr)
+long do_fork_task(unsigned long clone_flags,
+		unsigned long stack_start,
+		unsigned long stack_size,
+		struct task_struct **taskp,
+		int __user *parent_tidptr,
+		int __user *child_tidptr)
 {
 	struct task_struct *p;
 	int trace = 0;
@@ -1587,6 +1595,8 @@ long do_fork(unsigned long clone_flags,
 	if (!(clone_flags & CLONE_UNTRACED)) {
 		if (clone_flags & CLONE_VFORK)
 			trace = PTRACE_EVENT_VFORK;
+		else if (clone_flags & CLONE_QUIET_FORK)
+			trace = PTRACE_EVENT_FORK;
 		else if ((clone_flags & CSIGNAL) != SIGCHLD)
 			trace = PTRACE_EVENT_CLONE;
 		else
@@ -1618,6 +1628,11 @@ long do_fork(unsigned long clone_flags,
 			get_task_struct(p);
 		}
 
+		if (taskp) {
+			*taskp = p;
+			get_task_struct(p);
+		}
+
 		wake_up_new_task(p);
 
 		/* forking complete and child started to run, tell ptracer */
@@ -1632,6 +1647,16 @@ long do_fork(unsigned long clone_flags,
 		nr = PTR_ERR(p);
 	}
 	return nr;
+}
+
+long do_fork(unsigned long clone_flags,
+		unsigned long stack_start,
+		unsigned long stack_size,
+		int __user *parent_tidptr,
+		int __user *child_tidptr)
+{
+	return do_fork_task(clone_flags, stack_start, stack_size, NULL,
+			    parent_tidptr, child_tidptr);
 }
 
 /*
@@ -1662,6 +1687,45 @@ SYSCALL_DEFINE0(vfork)
 			0, NULL, NULL);
 }
 #endif
+
+SYSCALL_DEFINE2(pdfork, int __user *, fdp, int,  flags)
+{
+#ifdef CONFIG_PROCDESC
+	long ret;
+	int fd;
+	struct task_struct *task = NULL;
+	struct file *pd;
+
+	fd = get_unused_fd();
+	if (fd < 0)
+		return fd;
+
+	pd  = procdesc_alloc();
+	if (IS_ERR(pd)) {
+		ret = PTR_ERR(pd);
+		goto out_putfd;
+	}
+
+	ret = do_fork_task(CLONE_QUIET_FORK, 0, 0, &task, NULL, NULL);
+
+	if (ret < 0)
+		goto out_fput;
+
+	procdesc_init(pd, task, flags & PD_DAEMON);
+	fd_install(fd, pd);
+	put_user(fd, fdp);
+
+	return ret;
+
+out_fput:
+	fput(pd);
+out_putfd:
+	put_unused_fd(fd);
+	return ret;
+#else
+	return -ENOSYS;
+#endif
+}
 
 #ifdef __ARCH_WANT_SYS_CLONE
 #ifdef CONFIG_CLONE_BACKWARDS
