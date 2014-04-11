@@ -323,6 +323,10 @@
 314	common	sched_setattr		sys_sched_setattr
 315	common	sched_getattr		sys_sched_getattr
 316	common	renameat2		sys_renameat2
+320	common	pdfork			stub_pdfork
+321	common	pdgetpid		sys_pdgetpid
+322	common	pdkill			sys_pdkill
+323	common	pdwait4		sys_pdwait4
 
 #
 # x32-specific system call numbers start at 512 to avoid cache impact
