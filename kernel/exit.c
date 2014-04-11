@@ -53,6 +53,7 @@
 #include <linux/oom.h>
 #include <linux/writeback.h>
 #include <linux/shm.h>
+#include <linux/procdesc.h>
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -624,6 +625,10 @@ static void exit_notify(struct task_struct *tsk, int group_dead)
 
 	tsk->exit_state = autoreap ? EXIT_DEAD : EXIT_ZOMBIE;
 
+	/* Notify anyone who's waiting for us to finish. */
+	procdesc_exit(tsk);
+	wake_up(&tsk->wait_exit);
+
 	/* mt-exec, de_thread() is waiting for group leader */
 	if (unlikely(tsk->signal->notify_count < 0))
 		wake_up_process(tsk->signal->group_exit_task);
@@ -932,9 +937,9 @@ static int eligible_child(struct wait_opts *wo, struct task_struct *p)
 	 * otherwise, wait for clone children *only* if __WCLONE is
 	 * set; otherwise, wait for non-clone children *only*.  (Note:
 	 * A "clone" child here is one that reports to its parent
-	 * using a signal other than SIGCHLD.) */
-	if (((p->exit_signal != SIGCHLD) ^ !!(wo->wo_flags & __WCLONE))
-	    && !(wo->wo_flags & __WALL))
+	 * using a signal other than SIGCHLD and is not pdforked.) */
+	if (((p->exit_signal != SIGCHLD && !p->quiet_forked) ^
+	      !!(wo->wo_flags & __WCLONE)) && !(wo->wo_flags & __WALL))
 		return 0;
 
 	return 1;
