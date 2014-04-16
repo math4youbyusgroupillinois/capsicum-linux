@@ -1,0 +1,6 @@
+subdir*
+script*
+execveat
+execveat.symlink
+execveat.moved
+execveat.ephemeral

@@ -11,6 +11,7 @@ TARGETS += vm
 TARGETS += powerpc
 TARGETS += user
 TARGETS += sysctl
+TARGETS += exec
 
 all:
 	for TARGET in $(TARGETS); do \
