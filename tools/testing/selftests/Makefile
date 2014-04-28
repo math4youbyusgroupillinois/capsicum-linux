@@ -11,6 +11,7 @@ TARGETS += vm
 TARGETS += powerpc
 TARGETS += user
 TARGETS += sysctl
+TARGETS += openat
 
 all:
 	for TARGET in $(TARGETS); do \
