@@ -917,9 +917,19 @@ static void cap_audit_rule_free(void *lsmrule)
 #define set_to_cap_if_null(ops, function)				\
 	do {								\
 		if (!ops->function) {					\
-			ops->function = cap_##function;			\
+			ops->function = cap_##function;		\
 			pr_debug("Had to override the " #function	\
-				 " security operation with the default.\n");\
+				 " security operation with the default "\
+				 "cap_" #function ".\n");		\
+			}						\
+	} while (0)
+#define set_to_capsicum_if_null(ops, function)				\
+	do {								\
+		if (!ops->function) {					\
+			ops->function = capsicum_##function;		\
+			pr_debug("Had to override the " #function	\
+				 " security operation with the default "\
+				 "capsicum_" #function ".\n");		\
 			}						\
 	} while (0)
 
