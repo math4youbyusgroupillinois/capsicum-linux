@@ -114,6 +114,10 @@ u32 seccomp_bpf_load(int off)
 		return get_u32(KSTK_EIP(current), 0);
 	if (off == BPF_DATA(instruction_pointer) + sizeof(u32))
 		return get_u32(KSTK_EIP(current), 1);
+	if (off == BPF_DATA(tgid))
+		return task_tgid_vnr(current);
+	if (off == BPF_DATA(tid))
+		return task_pid_vnr(current);
 	/* seccomp_check_filter should make this impossible. */
 	BUG();
 }
