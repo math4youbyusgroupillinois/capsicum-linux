@@ -172,12 +172,12 @@ static int seccomp_check_filter(struct sock_filter *filter, unsigned int flen)
  */
 static u32 seccomp_run_filters(int syscall)
 {
-	struct seccomp_filter *f;
+	struct seccomp_filter *f = smp_load_acquire(&current->seccomp.filter);
 	struct seccomp_data sd;
 	u32 ret = SECCOMP_RET_ALLOW;
 
 	/* Ensure unexpected behavior doesn't result in failing open. */
-	if (WARN_ON(current->seccomp.filter == NULL))
+	if (unlikely(WARN_ON(f == NULL)))
 		return SECCOMP_RET_KILL;
 
 	populate_seccomp_data(&sd);
@@ -186,7 +186,7 @@ static u32 seccomp_run_filters(int syscall)
 	 * All filters in the list are evaluated and the lowest BPF return
 	 * value always takes priority (ignoring the DATA).
 	 */
-	for (f = current->seccomp.filter; f; f = f->prev) {
+	for (; f; f = f->prev) {
 		u32 cur_ret = SK_RUN_FILTER(f->prog, (void *)&sd);
 
 		if ((cur_ret & SECCOMP_RET_ACTION) < (ret & SECCOMP_RET_ACTION))
@@ -312,12 +312,16 @@ out:
  * seccomp_attach_filter: validate and attach filter
  * @filter: seccomp filter to add to the current process
  *
+ * Caller must be holding current->sighand->siglock lock.
+ *
  * Returns 0 on success, -ve on error.
  */
 static long seccomp_attach_filter(struct seccomp_filter *filter)
 {
 	unsigned long total_insns;
 	struct seccomp_filter *walker;
+
+	BUG_ON(!spin_is_locked(&current->sighand->siglock));
 
 	/* Validate resulting filter length. */
 	total_insns = filter->prog->len;
@@ -331,7 +335,7 @@ static long seccomp_attach_filter(struct seccomp_filter *filter)
 	 * task reference.
 	 */
 	filter->prev = current->seccomp.filter;
-	current->seccomp.filter = filter;
+	smp_store_release(&current->seccomp.filter, filter);
 
 	return 0;
 }
@@ -357,7 +361,7 @@ static inline void seccomp_filter_free(struct seccomp_filter *filter)
 /* put_seccomp_filter - decrements the ref count of tsk->seccomp.filter */
 void put_seccomp_filter(struct task_struct *tsk)
 {
-	struct seccomp_filter *orig = tsk->seccomp.filter;
+	struct seccomp_filter *orig = smp_load_acquire(&tsk->seccomp.filter);
 	/* Clean up single-reference branches iteratively. */
 	while (orig && atomic_dec_and_test(&orig->usage)) {
 		struct seccomp_filter *freeme = orig;
@@ -513,6 +517,7 @@ long prctl_get_seccomp(void)
 static long seccomp_set_mode(unsigned long seccomp_mode, char __user *filter)
 {
 	struct seccomp_filter *prepared = NULL;
+	unsigned long irqflags;
 	long ret = -EINVAL;
 
 #ifdef CONFIG_SECCOMP_FILTER
@@ -523,6 +528,8 @@ static long seccomp_set_mode(unsigned long seccomp_mode, char __user *filter)
 			return PTR_ERR(prepared);
 	}
 #endif
+
+	spin_lock_irqsave(&current->sighand->siglock, irqflags);
 
 	if (current->seccomp.mode &&
 	    current->seccomp.mode != seccomp_mode)
@@ -551,6 +558,7 @@ static long seccomp_set_mode(unsigned long seccomp_mode, char __user *filter)
 	current->seccomp.mode = seccomp_mode;
 	set_thread_flag(TIF_SECCOMP);
 out:
+	spin_unlock_irqrestore(&current->sighand->siglock, irqflags);
 	seccomp_filter_free(prepared);
 	return ret;
 }
