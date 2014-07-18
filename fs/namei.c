@@ -1849,6 +1849,9 @@ static int path_init(int dfd, const char *name, unsigned int *flags,
 	nd->flags = (*flags) | LOOKUP_PARENT | LOOKUP_JUMPED;
 	nd->depth = 0;
 
+	if (task_openat_beneath(current))
+		*flags |= LOOKUP_BENEATH;
+
 	if ((*flags) & LOOKUP_ROOT) {
 		struct dentry *root = nd->root.dentry;
 		struct inode *inode = root->d_inode;
